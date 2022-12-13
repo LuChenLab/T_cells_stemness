@@ -1,0 +1,52 @@
+---
+title: "ChIPseqSpikeInFree"
+author: "chenli"
+date: "2022/8/25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library("ChIPseqSpikeInFree")
+
+```
+
+```{r}
+setwd("./05.ChIPseqSpikeInFree")
+```
+
+
+
+```{r}
+metaFile <- "sample_meta.txt" 
+meta <- read.table(metaFile, header = T)
+bams <- paste0("../04.Filter/",as.character(meta$ID))
+
+ChIPseqSpikeInFree(bamFiles = bams,chromFile = "hg38",metaFile = metaFile,prefix = "H3K4me3",ncores = 6)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

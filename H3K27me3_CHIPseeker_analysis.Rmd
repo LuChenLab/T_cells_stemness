@@ -1,0 +1,220 @@
+---
+title: "CHIPseeker"
+author: "chenli"
+date: "2022/8/19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ChIPseeker)
+library(GenomicFeatures)
+library(ggplot2)
+library(dplyr)
+```
+
+## K27me3
+```{r}
+files <- list(`10+MET-1` = "../09.CHIPseeker/10+MET-1_macs2_peaks_CHIPseeker.bed",
+                `10+MET-2` = "../09.CHIPseeker/10+MET-2_macs2_peaks_CHIPseeker.bed",
+                `10MM-1` = "../09.CHIPseeker/10MM-1_macs2_peaks_CHIPseeker.bed",
+                `10MM-2` = "../09.CHIPseeker/10MM-2_macs2_peaks_CHIPseeker.bed",
+                `CON-1` = "../09.CHIPseeker/CON-1_macs2_peaks_CHIPseeker.bed",
+                `CON-2` = "../09.CHIPseeker/CON-2_macs2_peaks_CHIPseeker.bed" )
+myPeaks <- GenomicRanges::GRangesList(`10+MET-1` = readPeakFile(files[[1]]),
+                `10+MET-2` = readPeakFile(files[[2]]),
+                `10MM-1` = readPeakFile(files[[3]]),
+                `10MM-2` = readPeakFile(files[[4]]),
+                `CON-1` = readPeakFile(files[[5]]),
+                `CON-2` = readPeakFile(files[[6]]) )
+
+
+```
+
+
+```{r fig.height=16, fig.width=10}
+covplot(myPeaks[[1]])
+covplot(myPeaks) + facet_grid(chr ~ .id)
+```
+
+
+
+
+```{r fig.height=5, fig.width=3}
+##getPromoters函数准备启动子窗口
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene
+
+promoter <- getPromoters(TxDb=txdb, upstream=3000, downstream=3000)
+lapply(1:6, function(x){
+  tagMatrix <- getTagMatrix(myPeaks[[x]], windows=promoter)
+}) -> tagMatrixList
+
+tagHeatmap(tagMatrixList[[1]], xlim =c(-3000, 3000), color="red") 
+tagHeatmap(tagMatrixList[[2]], xlim =c(-3000, 3000), color="red")
+```
+
+
+
+
+```{r fig.height=6, fig.width=12}
+peakHeatmap(files, TxDb=txdb, upstream=3000, downstream=3000, color=c("#6495ED","#6495ED","#FFA500","#FFA500","#228B22","#228B22"))
+```
+
+```{r fig.height=3, fig.width=3.5}
+plotAvgProf(tagMatrixList[[1]], xlim=c(-3000, 3000),xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrixList[[2]], xlim=c(-3000, 3000),xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrixList[[3]], xlim=c(-3000, 3000),xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrixList[[4]], xlim=c(-3000, 3000),xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrixList[[5]], xlim=c(-3000, 3000),xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrixList[[6]], xlim=c(-3000, 3000),xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+```
+
+```{r fig.height=3, fig.width=12}
+##lapply函数进行批量处理
+# tagMatrixList <- lapply(files, getTagMatrix, windows=promoter)
+##conf定义置信区间，facet决定从上到下还是从左往右
+plotAvgProf(tagMatrixList, xlim =c(-3000, 3000), conf=0.95, resample=500, facet="column")
+```
+
+
+
+
+
+```{r}
+##addFlankGeneInfo看peak附近基因，flankDistance看peak左3kb距离
+##指定tssRegion（启动子区域），一般TSS上下游区域作为启动子区域
+## annoDb参数进行转换gene ID
+# peakAnno = annotatePeak(files[[1]], tssRegion=c(-1000, 1000), TxDb=txdb, addFlankGeneInfo=TRUE, flankDistance=3000, annoDb = 'org.Hs.eg.db')
+options(ChIPseeker.ignore_1st_exon = T)
+options(ChIPseeker.ignore_1st_intron = T)
+options(ChIPseeker.ignore_downstream = T)
+options(ChIPseeker.ignore_promoter_subcategory = T)
+
+
+peakAnnoList <- lapply(
+  files,
+  annotatePeak,
+  tssRegion = c(-1000, 1000),
+  TxDb = txdb,
+  addFlankGeneInfo = TRUE,
+  flankDistance = 3000,
+  annoDb = 'org.Hs.eg.db'
+)
+
+as.GRanges(peakAnnoList[[1]]) %>% head(3)
+
+```
+
+
+
+```{r}
+plotAnnoPie(peakAnno)
+
+```
+
+
+```{r}
+plotAnnoBar(peakAnnoList)
+```
+
+
+```{r}
+
+
+df_peak <- lapply(names(peakAnnoList), function(x){
+  tmp <- peakAnnoList[[x]]@annoStat
+  tmp$Treat <- x
+  return(tmp)
+  }) %>% do.call(rbind,.) %>% 
+  mutate(Treat = factor(Treat, levels = c("10+MET-2","10+MET-1","10MM-2",
+                                          "10MM-1","CON-2","CON-1")),
+         Class = rep(c("10+MET","10MM","CON"), each = 12))
+
+df_peak <- df_peak %>% dplyr::group_by(Class, Feature) %>% summarize(meanFreq = mean(Frequency)) %>% data.frame()
+
+Ctrl_freq <- subset(df_peak, Class == "CON")$meanFreq
+freq_10MM <- subset(df_peak, Class == "10MM")$meanFreq
+freq_10MET <- subset(df_peak, Class == "10+MET")$meanFreq
+All_freq <- Ctrl_freq + freq_10MM+ freq_10MET
+
+prop.test ( Ctrl_freq , All_freq)
+prop.test ( freq_10MM , All_freq)
+prop.test ( freq_10MET , All_freq)
+
+
+matrix_freq <- cbind(Ctrl_freq,freq_10MM,freq_10MET )
+rownames(matrix_freq) <- unique(df_peak$Feature)
+
+chisq.test(matrix_freq, correct = F)
+
+```
+
+```{r fig.height=3, fig.width=5}
+
+ggplot(df_peak,
+         aes(x = Treat,
+             y = Frequency,
+             fill = Feature)) +
+  geom_bar(stat = 'identity', width = 0.4, position = "fill") +
+  coord_flip() +
+  theme_minimal(base_size = 15) +
+  scale_fill_manual(values = RColorBrewer::brewer.pal(6, "Set2")) +
+  labs(x = "", y = "Percentage (%)") +
+  theme(legend.title = element_blank(),
+        panel.grid.minor=element_blank(),
+        panel.grid.major.y = element_blank()
+        ) -> p_barplot
+
+
+pdf("../09.CHIPseeker/K27me3_anno_barplot.pdf", width = 5, height = 3)
+p_barplot
+
+dev.off()
+
+
+```
+
+
+```{r fig.height=6, fig.width=6}
+genes <- lapply(peakAnnoList, function(i) as.data.frame(i)$geneId)
+
+
+genes_uniq <- list(`10+MET` = unique(c(genes[[1]],genes[[2]])), 
+                   `10MM` = unique(c(genes[[3]],genes[[4]])),
+                   `CON` = unique(c(genes[[5]],genes[[6]])))
+
+vennplot(genes_uniq)
+```
+
+
+```{r}
+
+peakAnnoList_df <- lapply(peakAnnoList, function(x){
+  as.data.frame(x)
+})
+```
+
+
+
+```{r}
+
+library(openxlsx)
+
+write.xlsx(peakAnnoList_df,file='./09.CHIPseeker/K27me3_anno_peak.xlsx',
+  colNames = TRUE,colWidths = c("auto", "auto", "auto","auto", "auto", "auto"))
+```
+
+
+
+
+
+
+
+
+
+
+
